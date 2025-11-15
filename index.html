@@ -41,7 +41,7 @@
       z-index: 30;
       display: none;
     }
-    #loginScreen { display: flex; }
+    #loginScreen, #loading { display: flex; }
     button {
       margin: 10px 0;
       padding: 12px 24px;
@@ -78,6 +78,11 @@
     Вы: <span id="userEmail">—</span>
   </div>
 
+  <!-- Экран загрузки -->
+  <div id="loading" class="screen">
+    <h2>⏳ Загрузка...</h2>
+  </div>
+
   <!-- Экран входа -->
   <div id="loginScreen" class="screen">
     <h1>🚀 Войдите в игру</h1>
@@ -106,7 +111,7 @@
 
   <!-- Таблица рекордов -->
   <div id="leaderboard" class="screen">
-    <h1>🏆 Топ 10 игроков</h1>
+    <h1>🏆 Топ 10 за неделю</h1>
     <div id="leaderboardList" style="text-align:left; width:300px; margin-top:20px;"></div>
     <button onclick="showMenu()">Назад</button>
   </div>
@@ -114,10 +119,9 @@
   <script>
     // ================== Supabase Config ==================
     // ⚠️ ЗАМЕНИТЕ ЭТИ СТРОКИ НА СВОИ ИЗ SUPABASE DASHBOARD!
-    const SUPABASE_URL = 'https://sxercvykyvpijcmkbugy.supabase.co';
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN4ZXJjdnlreXZwaWpjbWtidWd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMyMTMyMDgsImV4cCI6MjA3ODc4OTIwOH0.sIfZViicblM5kz7hNSt-FjnqB6Ngt9pUzO6noqxtggE';
+    const SUPABASE_URL = 'https://sxercvykyvpjicmkbugy.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN4ZXJjdnlreXBqaWNta2J1Z3kuc3VwYWJhc2UuY28iLCJyb2xlIjoiYW5vbiIsImlhdCI6MTczMTg0MjQ3OSwiZXhwIjoxMDQ3NDQyNDc5fQ.zLdP7s7aDpE7xHqWzXbK7T9oQe7Vf8OaK4C7Jr4tQ6k';
 
-    // Создаём клиент СРАЗУ
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     let currentUser = null;
 
@@ -131,6 +135,7 @@
     const timerEl = document.getElementById('timer');
     const userEmailEl = document.getElementById('userEmail');
     const finalScoreEl = document.getElementById('finalScore');
+    const loadingScreen = document.getElementById('loading');
 
     const loginScreen = document.getElementById('loginScreen');
     const menuEl = document.getElementById('menu');
@@ -170,7 +175,7 @@
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: {
-          emailRedirectTo: 'https://tricksterlub.github.io/space-junk-game/'
+          emailRedirectTo: window.location.origin + window.location.pathname
         }
       });
       if (error) {
@@ -180,23 +185,36 @@
       alert('Магическая ссылка отправлена на ' + email + '\nПроверьте почту (и папку Спам)!');
     }
 
-    // Проверка сессии при загрузке
-    supabase.auth.getSession().then((result) => {
-      const session = result.data.session;
+    // Проверка аутентификации при загрузке
+    async function checkAuth() {
+      loadingScreen.style.display = 'flex';
+      
+      const { data: { session } } = await supabase.auth.getSession();
+      
       if (session) {
         currentUser = session.user;
         userEmailEl.textContent = currentUser.email;
         loginScreen.style.display = 'none';
         menuEl.style.display = 'flex';
+      } else {
+        loginScreen.style.display = 'flex';
+        menuEl.style.display = 'none';
       }
-    });
+      
+      loadingScreen.style.display = 'none';
+    }
 
+    // Запускаем проверку при загрузке
+    checkAuth();
+
+    // Слушаем изменения состояния
     supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_IN') {
+      if (event === 'SIGNED_IN' && session) {
         currentUser = session.user;
         userEmailEl.textContent = currentUser.email;
         loginScreen.style.display = 'none';
         menuEl.style.display = 'flex';
+        loadingScreen.style.display = 'none';
       }
       if (event === 'SIGNED_OUT') {
         currentUser = null;
@@ -269,7 +287,7 @@
         debris[i].y += 4;
         if (checkCollision(player, debris[i])) {
           score += 10;
-          scoreEl.textContent = score; // ← ДИНАМИЧЕСКИЙ СЧЁТ!
+          scoreEl.textContent = score;
           debris.splice(i, 1);
         }
       }
@@ -323,7 +341,6 @@
       gameOverEl.style.display = 'flex';
 
       if (currentUser && score > 0) {
-        // Получаем лучший рекорд игрока
         const { data, error } = await supabase
           .from('scores')
           .select('score')
@@ -340,7 +357,6 @@
             });
           }
         } else {
-          // Первый рекорд
           await supabase.from('scores').insert({
             user_id: currentUser.id,
             score: score
@@ -360,19 +376,25 @@
     }
 
     async function showLeaderboard() {
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+      const isoDate = oneWeekAgo.toISOString();
+
       const { data, error } = await supabase
         .from('scores')
-        .select('user_id, score')
+        .select('user_id, score, created_at')
+        .gte('created_at', isoDate)
         .order('score', { ascending: false })
         .limit(10);
 
-      let html = '<div><strong>Топ 10:</strong></div>';
-      if (data) {
+      let html = '<div><strong>Топ 10 за неделю</strong></div>';
+      if (data && data.length > 0) {
         data.forEach((row, i) => {
-          html += `<div>${i+1}. Игрок-${row.user_id.substring(0,6)} — ${row.score}</div>`;
+          const date = new Date(row.created_at).toLocaleDateString('ru-RU');
+          html += `<div>${i+1}. Игрок-${row.user_id.substring(0,6)} — ${row.score} (${date})</div>`;
         });
       } else {
-        html += '<div>Нет рекордов</div>';
+        html += '<div>Нет рекордов за неделю</div>';
       }
       document.getElementById('leaderboardList').innerHTML = html;
       menuEl.style.display = 'none';
@@ -389,4 +411,3 @@
   </script>
 </body>
 </html>
-
