@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Космический Сборщик Мусора</title>
+  <!-- Supabase JS -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+    body {
+      background: #000;
+      color: white;
+      font-family: 'Segoe UI', sans-serif;
+      overflow: hidden;
+      touch-action: none;
+    }
+    canvas {
+      display: block;
+      background: #000;
+    }
+    #ui {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      font-size: 18px;
+      text-align: right;
+      z-index: 10;
+      text-shadow: 0 0 5px #0ff;
+    }
+    .screen {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background: rgba(0,0,0,0.85);
+      z-index: 30;
+      display: none;
+    }
+    #loginScreen { display: flex; }
+    button {
+      margin: 10px 0;
+      padding: 12px 24px;
+      font-size: 18px;
+      background: #3498db;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      min-width: 220px;
+    }
+    input {
+      padding: 12px;
+      font-size: 16px;
+      margin: 10px 0;
+      width: 250px;
+      border-radius: 6px;
+      border: 1px solid #3498db;
+    }
+    .record { color: gold; margin: 8px 0; font-size: 16px; }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+
+  <div id="ui">
+    Счёт: <span id="score">0</span><br>
+    Время: <span id="timer">60</span><br>
+    Вы: <span id="userEmail">—</span>
+  </div>
+
+  <!-- Экран входа -->
+  <div id="loginScreen" class="screen">
+    <h1>🚀 Войдите в игру</h1>
+    <input type="email" id="emailInput" placeholder="ваш@email.com" required>
+    <button onclick="login()">Войти по email</button>
+    <p style="font-size:14px; color:#999;">Мы пришлём магическую ссылку для входа</p>
+  </div>
+
+  <!-- Главное меню -->
+  <div id="menu" class="screen">
+    <h1>Космический Сборщик Мусора</h1>
+    <button onclick="startGame()">Начать игру</button>
+    <button onclick="showLeaderboard()">Таблица рекордов</button>
+  </div>
+
+  <!-- Конец игры -->
+  <div id="gameOver" class="screen">
+    <h1>Игра окончена!</h1>
+    <p>Ваш счёт: <span id="finalScore">0</span></p>
+    <button onclick="restartGame()">Играть снова</button>
+    <button onclick="showMenu()">В меню</button>
+  </div>
+
+  <!-- Таблица рекордов -->
+  <div id="leaderboard" class="screen">
+    <h1>🏆 Лучшие игроки</h1>
+    <div id="leaderboardList" style="text-align:left; width:300px; margin-top:20px;"></div>
+    <button onclick="showMenu()">Назад</button>
+  </div>
+
+  <script>
+    // ================== Supabase Config ==================
+    // ⚠️ ЗАМЕНИТЕ ЭТИ СТРОКИ НА СВОИ ИЗ СКРИНШОТА!
+    const SUPABASE_URL = 'https://sxercvykyvpji cmkbugy.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN4ZXJjdnlreXBqaWNta2J1Z3kuc3VwYWJhc2UuY28iLCJyb2xlIjoiYW5vbiIsImlhdCI6MTczMTg0MjQ3OSwiZXhwIjoxMDQ3NDQyNDc5fQ.zLdP7s7aDpE7xHqWzXbK7T9oQe7Vf8OaK4C7Jr4tQ6k';
+
+    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    let currentUser = null;
+
+    // ================== Инициализация ==================
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    // UI
+    const scoreEl = document.getElementById('score');
+    const timerEl = document.getElementById('timer');
+    const userEmailEl = document.getElementById('userEmail');
+    const finalScoreEl = document.getElementById('finalScore');
+
+    // Экраны
+    const loginScreen = document.getElementById('loginScreen');
+    const menuEl = document.getElementById('menu');
+    const gameOverEl = document.getElementById('gameOver');
+    const leaderboardEl = document.getElementById('leaderboard');
+
+    // Игровые переменные
+    let score = 0;
+    let timeLeft = 60;
+    let gameActive = false;
+    let debris = [];
+    let asteroids = [];
+    let lastFrameTime = 0;
+    let accumulatedTime = 0;
+    const timeStep = 1000 / 60; // 60 FPS
+    let startTime = 0;
+
+    const player = {
+      x: canvas.width / 2 - 15,
+      y: canvas.height - 80,
+      width: 30,
+      height: 40,
+      speed: 6
+    };
+
+    const keys = {};
+    window.addEventListener('keydown', (e) => { keys[e.key] = true; });
+    window.addEventListener('keyup', (e) => { keys[e.key] = false; });
+
+    // ================== Аутентификация ==================
+    async function login() {
+      const email = document.getElementById('emailInput').value.trim();
+      if (!email || !email.includes('@')) {
+        alert('Введите корректный email');
+        return;
+      }
+
+      const { error } = await supabase.auth.signInWithOtp({ email });
+      if (error) {
+        alert('Ошибка: ' + error.message);
+        return;
+      }
+      alert('Магическая ссылка отправлена на ' + email + '\nПроверьте почту!');
+    }
+
+    // Проверка сессии при загрузке
+    supabase.auth.getSession().then(({  { session } }) => {
+      if (session) {
+        currentUser = session.user;
+        userEmailEl.textContent = currentUser.email;
+        loginScreen.style.display = 'none';
+        menuEl.style.display = 'flex';
+      }
+    });
+
+    supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN') {
+        currentUser = session.user;
+        userEmailEl.textContent = currentUser.email;
+        loginScreen.style.display = 'none';
+        menuEl.style.display = 'flex';
+      }
+      if (event === 'SIGNED_OUT') {
+        currentUser = null;
+        loginScreen.style.display = 'flex';
+        menuEl.style.display = 'none';
+      }
+    });
+
+    // ================== Игра ==================
+    function startGame() {
+      if (!currentUser) {
+        alert('Сначала войдите в аккаунт!');
+        return;
+      }
+      score = 0;
+      timeLeft = 60;
+      gameActive = true;
+      debris = [];
+      asteroids = [];
+
+      scoreEl.textContent = score;
+      timerEl.textContent = timeLeft;
+      menuEl.style.display = 'none';
+      gameOverEl.style.display = 'none';
+
+      startTime = performance.now();
+      lastFrameTime = performance.now();
+      requestAnimationFrame(gameLoop);
+    }
+
+    function gameLoop(timestamp) {
+      if (!gameActive) return;
+
+      const deltaTime = timestamp - lastFrameTime;
+      lastFrameTime = timestamp;
+      accumulatedTime += deltaTime;
+
+      // Очистка
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Управление
+      if (keys['ArrowLeft'] && player.x > 0) player.x -= player.speed;
+      if (keys['ArrowRight'] && player.x < canvas.width - player.width) player.x += player.speed;
+      player.x = Math.max(0, Math.min(canvas.width - player.width, player.x));
+
+      // Обновление с фиксированным шагом
+      while (accumulatedTime >= timeStep) {
+        update();
+        accumulatedTime -= timeStep;
+      }
+
+      // Рендер
+      render();
+
+      // Таймер
+      if (gameActive) {
+        const elapsed = (performance.now() - startTime) / 1000;
+        timeLeft = Math.max(0, Math.floor(60 - elapsed));
+        timerEl.textContent = timeLeft;
+        if (timeLeft <= 0) {
+          endGame();
+          return;
+        }
+      }
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    function update() {
+      // Спавн
+      if (Math.random() < 0.03) createDebris();
+      if (Math.random() < 0.02) createAsteroid();
+
+      // Мусор
+      for (let i = debris.length - 1; i >= 0; i--) {
+        debris[i].y += 4;
+        if (checkCollision(player, debris[i])) {
+          score += 10;
+          debris.splice(i, 1);
+        }
+      }
+
+      // Астероиды
+      for (let i = asteroids.length - 1; i >= 0; i--) {
+        asteroids[i].y += 5;
+        if (checkCollision(player, asteroids[i])) {
+          endGame();
+          return;
+        }
+      }
+    }
+
+    function render() {
+      // Корабль
+      ctx.fillStyle = '#3498db';
+      ctx.fillRect(player.x, player.y, player.width, player.height);
+
+      // Мусор
+      ctx.fillStyle = '#2ecc71';
+      debris.forEach(d => {
+        ctx.beginPath();
+        ctx.arc(d.x + 8, d.y + 8, 8, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Астероиды
+      ctx.fillStyle = '#e74c3c';
+      asteroids.forEach(a => {
+        ctx.beginPath();
+        ctx.arc(a.x + 15, a.y + 15, 15, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    function createDebris() {
+      debris.push({ x: Math.random() * (canvas.width - 16), y: -16 });
+    }
+
+    function createAsteroid() {
+      asteroids.push({ x: Math.random() * (canvas.width - 30), y: -30 });
+    }
+
+    function checkCollision(a, b) {
+      return a.x < b.x + (b.width || 30) &&
+             a.x + a.width > b.x &&
+             a.y < b.y + (b.height || 30) &&
+             a.y + a.height > b.y;
+    }
+
+    async function endGame() {
+      gameActive = false;
+      finalScoreEl.textContent = score;
+      gameOverEl.style.display = 'flex';
+
+      // Сохраняем рекорд
+      if (currentUser) {
+        await supabase.from('scores').insert({
+          user_id: currentUser.id,
+          score: score
+        });
+      }
+    }
+
+    function restartGame() {
+      startGame();
+    }
+
+    function showMenu() {
+      menuEl.style.display = 'flex';
+      gameOverEl.style.display = 'none';
+      leaderboardEl.style.display = 'none';
+    }
+
+    async function showLeaderboard() {
+      const { data, error } = await supabase
+        .from('scores')
+        .select('user_id, score')
+        .order('score', { ascending: false })
+        .limit(10);
+
+      let html = '<div><strong>Топ 10:</strong></div>';
+      if (data) {
+        data.forEach((row, i) => {
+          html += `<div>${i+1}. Игрок-${row.user_id.substring(0,6)} — ${row.score}</div>`;
+        });
+      }
+      document.getElementById('leaderboardList').innerHTML = html;
+      menuEl.style.display = 'none';
+      leaderboardEl.style.display = 'flex';
+    }
+
+    // Адаптация под размер экрана
+    window.addEventListener('resize', () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      if (!gameActive) {
+        player.x = canvas.width / 2 - 15;
+      }
+    });
+  </script>
+</body>
+</html>
