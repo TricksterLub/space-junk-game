@@ -213,7 +213,35 @@
 
     // Управление
     const keys = {};
+    async function signup() {
+  const email = document.getElementById('signupEmail').value.trim();
+  const password = document.getElementById('signupPassword').value;
+  const username = document.getElementById('signupUsername').value.trim();
 
+  if (!email || !password || !username) {
+    alert('Заполните все поля');
+    return;
+  }
+  if (password.length < 6) {
+    alert('Пароль должен быть от 6 символов');
+    return;
+  }
+
+  try {
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+         { username }
+      }
+    });
+    if (error) throw error;
+    alert('Регистрация успешна! Проверьте email для подтверждения.');
+    showLogin();
+  } catch (err) {
+    alert('Ошибка: ' + err.message);
+  }
+}
     // ================== Мобильные кнопки ==================
     document.getElementById('leftBtn').addEventListener('touchstart', () => keys.ArrowLeft = true);
     document.getElementById('leftBtn').addEventListener('touchend', () => keys.ArrowLeft = false);
@@ -699,3 +727,4 @@
   </script>
 </body>
 </html>
+
