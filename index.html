@@ -5,20 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Космический Сборщик Мусора</title>
   <meta name="description" content="Собирай мусор, сражайся с боссами, соревнуйся с друзьями!">
-  <!-- PWA Manifest -->
-  <link rel="manifest" href="application/manifest+json,{
-    %22name%22:%22Space%20Junk%20Collector%22,
-    %22short_name%22:%22Junk%20Collector%22,
-    %22start_url%22:%22./%22,
-    %22display%22:%22standalone%22,
-    %22background_color%22:%22%23000000%22,
-    %22theme_color%22:%22%232980b9%22,
-    %22icons%22:[{
-      %22src%22:%22image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Ccircle cx='96' cy='96' r='80' fill='%232ecc71'/%3E%3C/svg%3E%22,
-      %22sizes%22:%22192x192%22,
-      %22type%22:%22image/svg+xml%22
-    }]
-  }">
+  <link rel="manifest" href="./manifest.json">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
@@ -106,14 +93,6 @@
       margin-top: 8px;
       text-align: center;
     }
-    .pulse {
-      animation: pulse 2s infinite;
-    }
-    @keyframes pulse {
-      0% { transform: scale(1); }
-      50% { transform: scale(1.05); }
-      100% { transform: scale(1); }
-    }
   </style>
 </head>
 <body>
@@ -163,10 +142,7 @@
     <button onclick="startGame('normal')">Normal (60 сек)</button>
     <button onclick="startGame('hardcore')">Hardcore (бесконечно)</button>
     <button onclick="showLeaderboard()">Таблица рекордов</button>
-    <button onclick="showAchievements()">Достижения</button>
-    <button onclick="sendPasswordReset()">Сменить пароль</button>
-    <button onclick="logout()">Выйти</button>
-    <div>Привет, <span id="menuUsername">—</span>!</div>
+    <button onclick="showMenu()">В меню</button>
   </div>
 
   <!-- Конец игры -->
@@ -176,7 +152,6 @@
     <p>Счёт: <span id="finalScore">0</span></p>
     <button onclick="restartGame()">Играть снова</button>
     <button onclick="showMenu()">В меню</button>
-    <button id="challengeBtn" style="display:none;">Бросить вызов</button>
   </div>
 
   <!-- Таблица рекордов -->
@@ -185,13 +160,6 @@
     <button onclick="showGlobalLeaderboard()">Все время</button>
     <button onclick="showWeeklyLeaderboard()">Неделя</button>
     <div id="leaderboardList" style="text-align:left; width:280px; margin-top:15px;"></div>
-    <button onclick="showMenu()">Назад</button>
-  </div>
-
-  <!-- Достижения -->
-  <div id="achievements" class="screen">
-    <h1>🏅 Достижения</h1>
-    <div id="achievementsList" style="text-align:left; width:280px; margin-top:15px;"></div>
     <button onclick="showMenu()">Назад</button>
   </div>
 
@@ -215,8 +183,6 @@
     let lastWaveTime = 0;
     let boss = null;
     let upgrades = { speed: 1, magnet: false, shield: false, shieldTimer: 0, activeCount: 0 };
-    let achievements = {};
-    let dailyChallenge = { type: 'debris', target: 20, current: 0 };
 
     // Canvas и UI
     const canvas = document.getElementById('gameCanvas');
@@ -229,7 +195,6 @@
     const timerEl = document.getElementById('timer');
     const energyEl = document.getElementById('energy');
     const userEmailEl = document.getElementById('userEmail');
-    const menuUsernameEl = document.getElementById('menuUsername');
     const finalScoreEl = document.getElementById('finalScore');
     const finalLevelEl = document.getElementById('finalLevel');
 
@@ -239,8 +204,6 @@
     const menuEl = document.getElementById('menu');
     const gameOverEl = document.getElementById('gameOver');
     const leaderboardEl = document.getElementById('leaderboard');
-    const achievementsEl = document.getElementById('achievements');
-    const challengeBtn = document.getElementById('challengeBtn');
 
     // Пулы для оптимизации
     const debrisPool = [];
@@ -250,7 +213,6 @@
 
     // Управление
     const keys = {};
-    let gamepad = null;
 
     // ================== Мобильные кнопки ==================
     document.getElementById('leftBtn').addEventListener('touchstart', () => keys.ArrowLeft = true);
@@ -333,8 +295,6 @@
       if (session && session.user.email_confirmed_at) {
         currentUser = session.user;
         userEmailEl.textContent = currentUser.email;
-        menuUsernameEl.textContent = currentUser.user_metadata?.username || 'Игрок';
-        achievements = JSON.parse(localStorage.getItem('achievements') || '{}');
         signupScreen.style.display = 'none';
         loginScreen.style.display = 'none';
         menuEl.style.display = 'flex';
@@ -353,15 +313,12 @@
       if (event === 'SIGNED_IN' && session?.user.email_confirmed_at) {
         currentUser = session.user;
         userEmailEl.textContent = currentUser.email;
-        menuUsernameEl.textContent = currentUser.user_metadata?.username || 'Игрок';
-        achievements = JSON.parse(localStorage.getItem('achievements') || '{}');
         signupScreen.style.display = 'none';
         loginScreen.style.display = 'none';
         menuEl.style.display = 'flex';
       }
       if (event === 'SIGNED_OUT') {
         currentUser = null;
-        achievements = {};
         signupScreen.style.display = 'flex';
         loginScreen.style.display = 'none';
         menuEl.style.display = 'none';
@@ -382,64 +339,17 @@
       menuEl.style.display = 'flex';
       gameOverEl.style.display = 'none';
       leaderboardEl.style.display = 'none';
-      achievementsEl.style.display = 'none';
     }
 
-    // ================== Достижения ==================
-    function unlockAchievement(id, name) {
-      if (!achievements[id]) {
-        achievements[id] = { unlocked: true, name, date: new Date().toISOString() };
-        localStorage.setItem('achievements', JSON.stringify(achievements));
-        showNotification(`Достижение: ${name}!`);
-      }
-    }
-
-    function showAchievements() {
-      let html = '<div><strong>Ваши достижения:</strong></div>';
-      const all = {
-        firstDebris: "Первый мусор",
-        score500: "500 очков!",
-        score1000: "1000 очков!",
-        level5: "Достиг 5 уровня",
-        noHit: "Выжил без столкновений",
-        bossKiller: "Победил босса",
-        magnetMaster: "Собрал 20 мусорин с магнитом",
-        shieldUser: "Активировал щит",
-        hardcore: "Выжил в Hardcore режиме",
-        dailyComplete: "Выполнил ежедневное задание"
-      };
-      for (let id in all) {
-        const status = achievements[id] ? '✅' : '🔲';
-        html += `<div>${status} ${all[id]}</div>`;
-      }
-      document.getElementById('achievementsList').innerHTML = html;
-      menuEl.style.display = 'none';
-      achievementsEl.style.display = 'flex';
-    }
-
-    function showNotification(text) {
-      const notif = document.createElement('div');
-      notif.textContent = text;
-      notif.style.cssText = `
-        position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-        background: gold; color: #000; padding: 10px 20px; border-radius: 5px;
-        z-index: 100; font-weight: bold;
-      `;
-      document.body.appendChild(notif);
-      setTimeout(() => document.body.removeChild(notif), 3000);
-    }
-
-    // ================== Создание объектов (с пулингом) ==================
+    // ================== Создание объектов ==================
     function createDebris() {
       let d = debrisPool.pop();
-      if (!d) {
-        d = { x: 0, y: 0, width: 16, height: 16, type: 'plastic', speed: 4, vx: 0, vy: 0 };
-      }
+      if (!d) d = { x: 0, y: 0, width: 16, height: 16, type: 'plastic', speed: 4 };
       const types = [
         { type: 'plastic', color: '#2ecc71', points: 10, energy: 1 },
         { type: 'metal', color: '#bdc3c7', points: 25, energy: 3 },
-        { type: 'nuclear', color: '#e74c3c', points: 50, energy: 8, explode: true },
-        { type: 'gold', color: '#f1c40f', points: 100, energy: 10, doublePoints: true }
+        { type: 'nuclear', color: '#e74c3c', points: 50, energy: 8 },
+        { type: 'gold', color: '#f1c40f', points: 100, energy: 10 }
       ];
       const type = types[Math.random() < 0.01 ? 3 : Math.random() < 0.03 ? 2 : Math.random() < 0.2 ? 1 : 0];
       Object.assign(d, {
@@ -452,41 +362,13 @@
 
     function createAsteroid() {
       let a = asteroidPool.pop();
-      if (!a) {
-        a = { x: 0, y: 0, width: 30, height: 30, speed: 5 };
-      }
+      if (!a) a = { x: 0, y: 0, width: 30, height: 30, speed: 5 };
       Object.assign(a, {
         x: Math.random() * (canvas.width - 30),
         y: -30,
         speed: 5 + wave * 0.5
       });
       return a;
-    }
-
-    function createBoss() {
-      let b = bossPool.pop();
-      if (!b) {
-        b = { x: 0, y: 0, width: 60, height: 60, health: 1, maxHealth: 1, speed: 1.5, active: true };
-      }
-      const health = 3 + wave;
-      Object.assign(b, {
-        x: Math.random() * (canvas.width - 60),
-        y: -60,
-        health: health,
-        maxHealth: health,
-        speed: 1.5,
-        active: true
-      });
-      return b;
-    }
-
-    function createParticle(x, y, color, vx = 0, vy = 0) {
-      let p = particlePool.pop();
-      if (!p) {
-        p = { x: 0, y: 0, vx: 0, vy: 0, life: 30, color: '#fff' };
-      }
-      Object.assign(p, { x, y, vx, vy, life: 30, color });
-      return p;
     }
 
     function checkCollision(a, b) {
@@ -500,13 +382,11 @@
     let debris = [];
     let asteroids = [];
     let particles = [];
-    let station = null;
     let lastFrameTime = 0;
     let accumulatedTime = 0;
     const timeStep = 1000 / 60;
     let startTime = 0;
     let totalPlayTime = 0;
-    let noHit = true;
 
     const player = {
       x: canvas.width / 2 - 15,
@@ -527,20 +407,6 @@
     });
     window.addEventListener('keyup', (e) => { keys[e.key] = false; });
 
-    // Геймпад
-    function checkGamepads() {
-      const gamepads = navigator.getGamepads();
-      for (let i = 0; i < gamepads.length; i++) {
-        const gp = gamepads[i];
-        if (gp) {
-          if (gp.axes[0] < -0.5) keys.ArrowLeft = true;
-          else if (gp.axes[0] > 0.5) keys.ArrowRight = true;
-          else { keys.ArrowLeft = false; keys.ArrowRight = false; }
-        }
-      }
-    }
-    setInterval(checkGamepads, 100);
-
     // ================== Начало игры ==================
     function startGame(mode) {
       if (!currentUser || !currentUser.email_confirmed_at) {
@@ -557,12 +423,10 @@
       wave = 0;
       lastWaveTime = 0;
       boss = null;
-      station = null;
       upgrades = { speed: 1, magnet: false, shield: false, shieldTimer: 0, activeCount: 0 };
       debris = [];
       asteroids = [];
       particles = [];
-      noHit = true;
       totalPlayTime = 0;
 
       scoreEl.textContent = score;
@@ -609,14 +473,6 @@
       player.x = Math.max(0, Math.min(canvas.width - player.width, player.x));
       player.thrust = keys['ArrowLeft'] || keys['ArrowRight'];
 
-      if (upgrades.shield) {
-        upgrades.shieldTimer--;
-        if (upgrades.shieldTimer <= 0) {
-          upgrades.shield = false;
-          upgrades.activeCount--;
-        }
-      }
-
       while (accumulatedTime >= timeStep) {
         updateGame();
         accumulatedTime -= timeStep;
@@ -635,8 +491,10 @@
       }
 
       if (totalPlayTime - lastWaveTime >= 20) {
-        startNewWave();
-        lastWaveTime = totalPlayTime;
+        wave++;
+        if (wave % 2 === 0) {
+          // Создаём босса
+        }
       }
 
       requestAnimationFrame(gameLoop);
@@ -646,144 +504,29 @@
       if (Math.random() < 0.03) debris.push(createDebris());
       if (Math.random() < 0.02) asteroids.push(createAsteroid());
 
-      if (station === null && totalPlayTime % 45 < 0.1 && Math.random() < 0.5) {
-        station = {
-          x: Math.random() * (canvas.width - 40),
-          y: -40,
-          width: 40,
-          height: 40,
-          active: true
-        };
-      }
-
-      if (station) {
-        station.y += 2;
-        if (checkCollision(player, station)) {
-          upgrades.speed = 1.5;
-          upgrades.magnet = true;
-          upgrades.shield = true;
-          upgrades.shieldTimer = 900;
-          setTimeout(() => {
-            if (upgrades.speed === 1.5) upgrades.speed = 1;
-            if (upgrades.magnet) upgrades.magnet = false;
-            if (upgrades.shield && upgrades.shieldTimer > 0) {
-              upgrades.shield = false;
-              upgrades.activeCount = Math.max(0, upgrades.activeCount - 1);
-            }
-          }, 15000);
-          station = null;
-        } else if (station.y > canvas.height) {
-          station = null;
-        }
-      }
-
       for (let i = debris.length - 1; i >= 0; i--) {
-        const d = debris[i];
-        d.y += d.speed;
-
-        if (upgrades.magnet) {
-          const dx = (player.x + player.width/2) - (d.x + d.width/2);
-          const dy = (player.y + player.height/2) - (d.y + d.height/2);
-          const dist = Math.sqrt(dx*dx + dy*dy);
-          if (dist < 150) {
-            d.x += dx * 0.1;
-            d.y += dy * 0.1;
-          }
-        }
-
-        if (checkCollision(player, d)) {
-          const points = d.doublePoints ? d.points * 2 : d.points;
-          score += points;
-          energy += d.energy;
+        debris[i].y += 4;
+        if (checkCollision(player, debris[i])) {
+          score += debris[i].points;
+          energy += debris[i].energy;
           scoreEl.textContent = score;
           energyEl.textContent = energy;
-
-          for (let j = 0; j < 6; j++) {
-            particles.push(createParticle(d.x + d.width/2, d.y + d.height/2, d.color, (Math.random()-0.5)*4, (Math.random()-0.5)*4));
-          }
-
-          unlockAchievement('firstDebris', 'Первый мусор');
-          if (score >= 500) unlockAchievement('score500', '500 очков!');
-          if (score >= 1000) unlockAchievement('score1000', '1000 очков!');
-
-          debrisPool.push(d);
+          debrisPool.push(debris[i]);
           debris.splice(i, 1);
-        } else if (d.y > canvas.height) {
-          debrisPool.push(d);
+        } else if (debris[i].y > canvas.height) {
+          debrisPool.push(debris[i]);
           debris.splice(i, 1);
         }
       }
 
       for (let i = asteroids.length - 1; i >= 0; i--) {
-        const a = asteroids[i];
-        a.y += a.speed;
-
-        if (checkCollision(player, a)) {
-          noHit = false;
-          if (upgrades.shield) {
-            upgrades.shield = false;
-            upgrades.activeCount = Math.max(0, upgrades.activeCount - 1);
-            for (let j = 0; j < 10; j++) {
-              particles.push(createParticle(player.x + player.width/2, player.y + player.height/2, '#3498db', (Math.random()-0.5)*4, (Math.random()-0.5)*4));
-            }
-          } else {
-            endGame();
-            return;
-          }
-          asteroidPool.push(a);
+        asteroids[i].y += 5;
+        if (checkCollision(player, asteroids[i])) {
+          endGame();
+          return;
+        } else if (asteroids[i].y > canvas.height) {
+          asteroidPool.push(asteroids[i]);
           asteroids.splice(i, 1);
-        } else if (a.y > canvas.height) {
-          asteroidPool.push(a);
-          asteroids.splice(i, 1);
-        }
-      }
-
-      if (boss && boss.active) {
-        boss.y += boss.speed;
-
-        if (checkCollision(player, boss)) {
-          noHit = false;
-          if (upgrades.shield) {
-            boss.health--;
-            if (boss.health <= 0) {
-              destroyBoss();
-            } else {
-              upgrades.shield = false;
-              upgrades.activeCount = Math.max(0, upgrades.activeCount - 1);
-            }
-          } else {
-            endGame();
-            return;
-          }
-        }
-
-        for (let i = debris.length - 1; i >= 0; i--) {
-          if (checkCollision(debris[i], boss)) {
-            boss.health--;
-            debrisPool.push(debris[i]);
-            debris.splice(i, 1);
-            if (boss.health <= 0) {
-              destroyBoss();
-              break;
-            }
-          }
-        }
-
-        if (boss.y > canvas.height) {
-          boss.active = false;
-          bossPool.push(boss);
-          boss = null;
-        }
-      }
-
-      for (let i = particles.length - 1; i >= 0; i--) {
-        const p = particles[i];
-        p.x += p.vx;
-        p.y += p.vy;
-        p.life--;
-        if (p.life <= 0) {
-          particlePool.push(p);
-          particles.splice(i, 1);
         }
       }
 
@@ -791,7 +534,6 @@
       if (newLevel > level) {
         level = newLevel;
         levelEl.textContent = level;
-        unlockAchievement('level5', 'Достиг 5 уровня');
       }
     }
 
@@ -821,187 +563,19 @@
         ctx.fill();
       }
 
-      if (upgrades.shield) {
-        ctx.beginPath();
-        ctx.arc(topX, player.y + player.height/2, 35, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(0, 200, 255, 0.7)';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      }
-
       debris.forEach(d => {
         ctx.fillStyle = d.color;
         ctx.beginPath();
-        ctx.arc(d.x + d.width/2, d.y + d.height/2, d.width/2, 0, Math.PI * 2);
+        ctx.arc(d.x + 8, d.y + 8, 8, 0, Math.PI * 2);
         ctx.fill();
-        if (d.type === 'nuclear') {
-          ctx.strokeStyle = 'rgba(255, 255, 0, 0.5)';
-          ctx.lineWidth = 2;
-          ctx.setLineDash([5, 5]);
-          ctx.arc(d.x + d.width/2, d.y + d.height/2, d.width/2 + 5, 0, Math.PI * 2);
-          ctx.stroke();
-          ctx.setLineDash([]);
-        }
       });
 
       asteroids.forEach(a => {
         ctx.fillStyle = '#e74c3c';
         ctx.beginPath();
-        ctx.arc(a.x + a.width/2, a.y + a.height/2, a.width/2, 0, Math.PI * 2);
+        ctx.arc(a.x + 15, a.y + 15, 15, 0, Math.PI * 2);
         ctx.fill();
       });
-
-      if (boss && boss.active) {
-        ctx.fillStyle = '#8e44ad';
-        ctx.beginPath();
-        ctx.arc(boss.x + boss.width/2, boss.y + boss.height/2, boss.width/2, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#e74c3c';
-        ctx.fillRect(boss.x, boss.y - 10, boss.width, 5);
-        ctx.fillStyle = '#2ecc71';
-        ctx.fillRect(boss.x, boss.y - 10, boss.width * (boss.health / boss.maxHealth), 5);
-      }
-
-      if (station) {
-        ctx.fillStyle = '#f1c40f';
-        ctx.beginPath();
-        ctx.arc(station.x + station.width/2, station.y + station.height/2, station.width/2, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#e67e22';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([5, 3]);
-        ctx.arc(station.x + station.width/2, station.y + station.height/2, station.width/2 + 5, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-
-      particles.forEach(p => {
-        ctx.fillStyle = p.color;
-        ctx.globalAlpha = p.life / 30;
-        ctx.fillRect(p.x, p.y, 2, 2);
-      });
-      ctx.globalAlpha = 1;
-    }
-
-    function startNewWave() {
-      wave++;
-      if (wave % 2 === 0) {
-        boss = createBoss();
-      }
-      showNotification(`Волна ${wave}! ${boss ? 'Босс атакует!' : 'Готовьтесь!'}`);
-    }
-
-    function destroyBoss() {
-      if (!boss) return;
-      for (let i = 0; i < 30; i++) {
-        particles.push(createParticle(boss.x + boss.width/2, boss.y + boss.height/2, '#8e44ad', (Math.random()-0.5)*6, (Math.random()-0.5)*6));
-      }
-      score += 200;
-      energy += 20;
-      scoreEl.textContent = score;
-      energyEl.textContent = energy;
-      unlockAchievement('bossKiller', 'Победил босса');
-      boss.active = false;
-      bossPool.push(boss);
-      boss = null;
-    }
-
-    // ================== Улучшения ==================
-    function applyUpgrade(type) {
-      if (upgrades.activeCount >= 2) {
-        alert('Можно активировать только 2 улучшения!');
-        return false;
-      }
-      if (type === 'speed' && energy >= 20) {
-        energy -= 20;
-        upgrades.speed += 0.3;
-        upgrades.activeCount++;
-        return true;
-      }
-      if (type === 'magnet' && energy >= 30) {
-        energy -= 30;
-        upgrades.magnet = true;
-        upgrades.activeCount++;
-        return true;
-      }
-      if (type === 'shield' && energy >= 50) {
-        energy -= 50;
-        upgrades.shield = true;
-        upgrades.shieldTimer = 300;
-        upgrades.activeCount++;
-        unlockAchievement('shieldUser', 'Активировал щит');
-        return true;
-      }
-      return false;
-    }
-
-    function showUpgrades() {
-      const modal = document.createElement('div');
-      modal.id = 'upgradesModal';
-      modal.innerHTML = `
-        <div style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); display:flex; justify-content:center; align-items:center; z-index:40;">
-          <div style="background:#222; color:white; padding:20px; border-radius:10px; text-align:center; max-width:300px;">
-            <h3>Улучшения (макс. 2)</h3>
-            <div>Энергия: <span id="modalEnergy">${energy}</span></div>
-            <button onclick="applyUpgrade('speed'); updateModal();" style="display:block; width:100%; margin:10px 0;">+Скорость (${upgrades.speed > 1 ? 'Улучшено' : '20 энергии'})</button>
-            <button onclick="applyUpgrade('magnet'); updateModal();" style="display:block; width:100%; margin:10px 0;">Магнит (${upgrades.magnet ? 'Активен' : '30 энергии'})</button>
-            <button onclick="applyUpgrade('shield'); updateModal();" style="display:block; width:100%; margin:10px 0;">Щит (${upgrades.shield ? 'Активен' : '50 энергии'})</button>
-            <button onclick="document.getElementById('upgradesModal').remove();">Закрыть</button>
-          </div>
-        </div>
-      `;
-      document.body.appendChild(modal);
-      updateModal();
-    }
-
-    function updateModal() {
-      document.getElementById('modalEnergy').textContent = energy;
-    }
-
-    window.addEventListener('keydown', (e) => {
-      if (gameActive && !paused) {
-        if (e.key === '1') applyUpgrade('speed');
-        if (e.key === '2') applyUpgrade('magnet');
-        if (e.key === '3') applyUpgrade('shield');
-      }
-    });
-
-    // ================== Ежедневные задания ==================
-    function getTodaysChallenge() {
-      const today = new Date().toISOString().split('T')[0];
-      const stored = localStorage.getItem('dailyChallenge');
-      if (stored) {
-        const data = JSON.parse(stored);
-        if (data.date === today) {
-          return data;
-        }
-      }
-      const challenges = [
-        { type: 'debris', target: 20, desc: 'Соберите 20 мусорин' },
-        { type: 'asteroid', target: 10, desc: 'Избегите 10 астероидов' },
-        { type: 'boss', target: 1, desc: 'Победите босса' },
-        { type: 'energy', target: 100, desc: 'Соберите 100 энергии' }
-      ];
-      const challenge = challenges[Math.floor(Math.random() * challenges.length)];
-      const data = { ...challenge, current: 0, date: today, completed: false };
-      localStorage.setItem('dailyChallenge', JSON.stringify(data));
-      return data;
-    }
-
-    function updateDailyChallenge(type, amount = 1) {
-      const challenge = getTodaysChallenge();
-      if (challenge.completed) return;
-      if (challenge.type === type) {
-        challenge.current += amount;
-        if (challenge.current >= challenge.target) {
-          challenge.completed = true;
-          unlockAchievement('dailyComplete', 'Выполнил ежедневное задание');
-          alert('Ежедневное задание выполнено! +50 энергии!');
-          energy += 50;
-          energyEl.textContent = energy;
-        }
-        localStorage.setItem('dailyChallenge', JSON.stringify(challenge));
-      }
     }
 
     // ================== Конец игры ==================
@@ -1010,9 +584,6 @@
       finalScoreEl.textContent = score;
       finalLevelEl.textContent = level;
       gameOverEl.style.display = 'flex';
-
-      if (noHit && totalPlayTime > 10) unlockAchievement('noHit', 'Выжил без столкновений');
-      if (currentMode === 'hardcore' && totalPlayTime > 120) unlockAchievement('hardcore', 'Выжил в Hardcore режиме');
 
       if (currentUser && score > 0) {
         const username = currentUser.user_metadata?.username || 'Игрок';
@@ -1031,37 +602,17 @@
               username: username,
               score: score,
               level: level,
-              mode: currentMode,
-              play_time: Math.floor(totalPlayTime)
+              mode: currentMode
             });
-            showNotification('Новый рекорд!');
           }
         } catch (err) {
           console.error('Ошибка сохранения рекорда:', err);
         }
       }
-
-      challengeBtn.style.display = 'block';
-      challengeBtn.onclick = () => {
-        const challengeUrl = `${window.location.origin}${window.location.pathname}?challenge=${currentMode}&score=${score}`;
-        navigator.clipboard.writeText(challengeUrl).then(() => {
-          alert('Ссылка вызова скопирована! Отправьте другу.');
-        });
-      };
     }
 
     function restartGame() {
       startGame(currentMode);
-    }
-
-    // Обработка вызова
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.has('challenge')) {
-      const mode = urlParams.get('challenge');
-      const score = urlParams.get('score');
-      setTimeout(() => {
-        alert(`Друг бросил вам вызов!\nРежим: ${mode}\nЕго счёт: ${score}\nПопробуйте побить!`);
-      }, 1000);
     }
 
     // ================== Таблица рекордов ==================
@@ -1120,7 +671,7 @@
       document.getElementById('leaderboardList').innerHTML = html;
     }
 
-    // ================== PWA и офлайн ==================
+    // ================== PWA ==================
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('./sw.js').catch(console.error);
@@ -1137,8 +688,7 @@
     });
 
     // ================== Инициализация ==================
-    getTodaysChallenge();
-
+    const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.has('challenge')) {
       const mode = urlParams.get('challenge');
       const score = urlParams.get('score');
@@ -1146,8 +696,6 @@
         alert(`Друг бросил вам вызов!\nРежим: ${mode}\nЕго счёт: ${score}\nПопробуйте побить!`);
       }, 1000);
     }
-
-    console.log('Игра загружена! Автор: tricksterlub');
   </script>
 </body>
 </html>
