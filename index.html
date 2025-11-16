@@ -250,8 +250,186 @@
 
     // Управление
     const keys = {};
-    <script>
-    let gamepad = null;    // ================== Создание объектов (с пулингом) ==================
+    let gamepad = null;
+
+    // ================== Мобильные кнопки ==================
+    document.getElementById('leftBtn').addEventListener('touchstart', () => keys.ArrowLeft = true);
+    document.getElementById('leftBtn').addEventListener('touchend', () => keys.ArrowLeft = false);
+    document.getElementById('rightBtn').addEventListener('touchstart', () => keys.ArrowRight = true);
+    document.getElementById('rightBtn').addEventListener('touchend', () => keys.ArrowRight = false);
+
+    // ================== Аутентификация ==================
+    async function signup() {
+      const email = document.getElementById('signupEmail').value.trim();
+      const password = document.getElementById('signupPassword').value;
+      const username = document.getElementById('signupUsername').value.trim();
+
+      if (!email || !password || !username) {
+        alert('Заполните все поля');
+        return;
+      }
+      if (password.length < 6) {
+        alert('Пароль должен быть от 6 символов');
+        return;
+      }
+
+      try {
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+             { username }
+          }
+        });
+        if (error) throw error;
+        alert('Регистрация успешна! Проверьте email для подтверждения.');
+        showLogin();
+      } catch (err) {
+        alert('Ошибка: ' + err.message);
+      }
+    }
+
+    async function login() {
+      const email = document.getElementById('loginEmail').value.trim();
+      const password = document.getElementById('loginPassword').value;
+
+      if (!email || !password) {
+        alert('Введите email и пароль');
+        return;
+      }
+
+      try {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+      } catch (err) {
+        alert('Ошибка входа: ' + err.message);
+      }
+    }
+
+    async function sendPasswordReset() {
+      const email = currentUser ? currentUser.email : prompt('Введите ваш email:');
+      if (!email) return;
+
+      try {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: window.location.origin + window.location.pathname
+        });
+        if (error) throw error;
+        alert('Ссылка для смены пароля отправлена на ' + email);
+      } catch (err) {
+        alert('Ошибка: ' + err.message);
+      }
+    }
+
+    async function logout() {
+      await supabase.auth.signOut();
+    }
+
+    async function checkAuth() {
+      loadingScreen.style.display = 'flex';
+      
+      const {  { session } } = await supabase.auth.getSession();
+      
+      if (session && session.user.email_confirmed_at) {
+        currentUser = session.user;
+        userEmailEl.textContent = currentUser.email;
+        menuUsernameEl.textContent = currentUser.user_metadata?.username || 'Игрок';
+        achievements = JSON.parse(localStorage.getItem('achievements') || '{}');
+        signupScreen.style.display = 'none';
+        loginScreen.style.display = 'none';
+        menuEl.style.display = 'flex';
+      } else {
+        signupScreen.style.display = 'flex';
+        loginScreen.style.display = 'none';
+        menuEl.style.display = 'none';
+      }
+      
+      loadingScreen.style.display = 'none';
+    }
+
+    checkAuth();
+
+    supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session?.user.email_confirmed_at) {
+        currentUser = session.user;
+        userEmailEl.textContent = currentUser.email;
+        menuUsernameEl.textContent = currentUser.user_metadata?.username || 'Игрок';
+        achievements = JSON.parse(localStorage.getItem('achievements') || '{}');
+        signupScreen.style.display = 'none';
+        loginScreen.style.display = 'none';
+        menuEl.style.display = 'flex';
+      }
+      if (event === 'SIGNED_OUT') {
+        currentUser = null;
+        achievements = {};
+        signupScreen.style.display = 'flex';
+        loginScreen.style.display = 'none';
+        menuEl.style.display = 'none';
+      }
+    });
+
+    function showSignup() {
+      signupScreen.style.display = 'flex';
+      loginScreen.style.display = 'none';
+    }
+
+    function showLogin() {
+      loginScreen.style.display = 'flex';
+      signupScreen.style.display = 'none';
+    }
+
+    function showMenu() {
+      menuEl.style.display = 'flex';
+      gameOverEl.style.display = 'none';
+      leaderboardEl.style.display = 'none';
+      achievementsEl.style.display = 'none';
+    }
+
+    // ================== Достижения ==================
+    function unlockAchievement(id, name) {
+      if (!achievements[id]) {
+        achievements[id] = { unlocked: true, name, date: new Date().toISOString() };
+        localStorage.setItem('achievements', JSON.stringify(achievements));
+        showNotification(`Достижение: ${name}!`);
+      }
+    }
+
+    function showAchievements() {
+      let html = '<div><strong>Ваши достижения:</strong></div>';
+      const all = {
+        firstDebris: "Первый мусор",
+        score500: "500 очков!",
+        score1000: "1000 очков!",
+        level5: "Достиг 5 уровня",
+        noHit: "Выжил без столкновений",
+        bossKiller: "Победил босса",
+        magnetMaster: "Собрал 20 мусорин с магнитом",
+        shieldUser: "Активировал щит",
+        hardcore: "Выжил в Hardcore режиме",
+        dailyComplete: "Выполнил ежедневное задание"
+      };
+      for (let id in all) {
+        const status = achievements[id] ? '✅' : '🔲';
+        html += `<div>${status} ${all[id]}</div>`;
+      }
+      document.getElementById('achievementsList').innerHTML = html;
+      menuEl.style.display = 'none';
+      achievementsEl.style.display = 'flex';
+    }
+
+    function showNotification(text) {
+      const notif = document.createElement('div');
+      notif.textContent = text;
+      notif.style.cssText = `
+        position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+        background: gold; color: #000; padding: 10px 20px; border-radius: 5px;
+        z-index: 100; font-weight: bold;
+      `;
+      document.body.appendChild(notif);
+      setTimeout(() => document.body.removeChild(notif), 3000);
+    }
+
+    // ================== Создание объектов (с пулингом) ==================
     function createDebris() {
       let d = debrisPool.pop();
       if (!d) {
@@ -355,7 +533,6 @@
       for (let i = 0; i < gamepads.length; i++) {
         const gp = gamepads[i];
         if (gp) {
-          // Левый стик: ось X
           if (gp.axes[0] < -0.5) keys.ArrowLeft = true;
           else if (gp.axes[0] > 0.5) keys.ArrowRight = true;
           else { keys.ArrowLeft = false; keys.ArrowRight = false; }
@@ -413,11 +590,9 @@
       accumulatedTime += deltaTime;
       totalPlayTime += deltaTime / 1000;
 
-      // Обновляем фон
       ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Параллакс-звёзды
       ctx.fillStyle = 'white';
       for (let i = 0; i < 50; i++) {
         const x = (Math.random() * canvas.width + totalPlayTime * 10) % canvas.width;
@@ -428,14 +603,12 @@
       }
       ctx.globalAlpha = 1;
 
-      // Управление
       const speed = player.baseSpeed * upgrades.speed;
       if (keys['ArrowLeft'] && player.x > 0) player.x -= speed;
       if (keys['ArrowRight'] && player.x < canvas.width - player.width) player.x += speed;
       player.x = Math.max(0, Math.min(canvas.width - player.width, player.x));
       player.thrust = keys['ArrowLeft'] || keys['ArrowRight'];
 
-      // Обновление щита
       if (upgrades.shield) {
         upgrades.shieldTimer--;
         if (upgrades.shieldTimer <= 0) {
@@ -444,16 +617,13 @@
         }
       }
 
-      // Обновление с фиксированным шагом
       while (accumulatedTime >= timeStep) {
         updateGame();
         accumulatedTime -= timeStep;
       }
 
-      // Рендер
       renderGame();
 
-      // Таймер
       if (gameActive && currentMode !== 'hardcore') {
         const elapsed = (performance.now() - startTime) / 1000;
         timeLeft = Math.max(0, Math.floor((currentMode === 'casual' ? 90 : 60) - elapsed));
@@ -464,7 +634,6 @@
         }
       }
 
-      // Волны
       if (totalPlayTime - lastWaveTime >= 20) {
         startNewWave();
         lastWaveTime = totalPlayTime;
@@ -474,11 +643,9 @@
     }
 
     function updateGame() {
-      // Спавн мусора и астероидов
       if (Math.random() < 0.03) debris.push(createDebris());
       if (Math.random() < 0.02) asteroids.push(createAsteroid());
 
-      // Спавн станции (каждые 45 сек)
       if (station === null && totalPlayTime % 45 < 0.1 && Math.random() < 0.5) {
         station = {
           x: Math.random() * (canvas.width - 40),
@@ -489,15 +656,13 @@
         };
       }
 
-      // Обновление станции
       if (station) {
         station.y += 2;
         if (checkCollision(player, station)) {
-          // Даём все улучшения на 15 сек
           upgrades.speed = 1.5;
           upgrades.magnet = true;
           upgrades.shield = true;
-          upgrades.shieldTimer = 900; // 15 сек при 60 FPS
+          upgrades.shieldTimer = 900;
           setTimeout(() => {
             if (upgrades.speed === 1.5) upgrades.speed = 1;
             if (upgrades.magnet) upgrades.magnet = false;
@@ -512,12 +677,10 @@
         }
       }
 
-      // Обновление мусора
       for (let i = debris.length - 1; i >= 0; i--) {
         const d = debris[i];
         d.y += d.speed;
 
-        // Магнит
         if (upgrades.magnet) {
           const dx = (player.x + player.width/2) - (d.x + d.width/2);
           const dy = (player.y + player.height/2) - (d.y + d.height/2);
@@ -528,7 +691,6 @@
           }
         }
 
-        // Сбор мусора
         if (checkCollision(player, d)) {
           const points = d.doublePoints ? d.points * 2 : d.points;
           score += points;
@@ -536,12 +698,10 @@
           scoreEl.textContent = score;
           energyEl.textContent = energy;
 
-          // Анимация + частицы
           for (let j = 0; j < 6; j++) {
             particles.push(createParticle(d.x + d.width/2, d.y + d.height/2, d.color, (Math.random()-0.5)*4, (Math.random()-0.5)*4));
           }
 
-          // Достижения
           unlockAchievement('firstDebris', 'Первый мусор');
           if (score >= 500) unlockAchievement('score500', '500 очков!');
           if (score >= 1000) unlockAchievement('score1000', '1000 очков!');
@@ -554,7 +714,6 @@
         }
       }
 
-      // Обновление астероидов
       for (let i = asteroids.length - 1; i >= 0; i--) {
         const a = asteroids[i];
         a.y += a.speed;
@@ -579,11 +738,9 @@
         }
       }
 
-      // Обновление босса
       if (boss && boss.active) {
         boss.y += boss.speed;
 
-        // Столкновение с игроком
         if (checkCollision(player, boss)) {
           noHit = false;
           if (upgrades.shield) {
@@ -600,7 +757,6 @@
           }
         }
 
-        // Столкновение с мусором (для атаки)
         for (let i = debris.length - 1; i >= 0; i--) {
           if (checkCollision(debris[i], boss)) {
             boss.health--;
@@ -620,7 +776,6 @@
         }
       }
 
-      // Обновление частиц
       for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
         p.x += p.vx;
@@ -632,7 +787,6 @@
         }
       }
 
-      // Уровень
       const newLevel = Math.floor(score / 500) + 1;
       if (newLevel > level) {
         level = newLevel;
@@ -642,7 +796,6 @@
     }
 
     function renderGame() {
-      // Корабль
       const topX = player.x + player.width / 2;
       const topY = player.y;
       const bottomLeftX = player.x;
@@ -658,7 +811,6 @@
       ctx.closePath();
       ctx.fill();
 
-      // Двигатель
       if (player.thrust) {
         ctx.fillStyle = '#f39c12';
         ctx.beginPath();
@@ -669,7 +821,6 @@
         ctx.fill();
       }
 
-      // Щит
       if (upgrades.shield) {
         ctx.beginPath();
         ctx.arc(topX, player.y + player.height/2, 35, 0, Math.PI * 2);
@@ -678,13 +829,11 @@
         ctx.stroke();
       }
 
-      // Мусор
       debris.forEach(d => {
         ctx.fillStyle = d.color;
         ctx.beginPath();
         ctx.arc(d.x + d.width/2, d.y + d.height/2, d.width/2, 0, Math.PI * 2);
         ctx.fill();
-        // Анимация ядерного мусора
         if (d.type === 'nuclear') {
           ctx.strokeStyle = 'rgba(255, 255, 0, 0.5)';
           ctx.lineWidth = 2;
@@ -695,7 +844,6 @@
         }
       });
 
-      // Астероиды
       asteroids.forEach(a => {
         ctx.fillStyle = '#e74c3c';
         ctx.beginPath();
@@ -703,20 +851,17 @@
         ctx.fill();
       });
 
-      // Босс
       if (boss && boss.active) {
         ctx.fillStyle = '#8e44ad';
         ctx.beginPath();
         ctx.arc(boss.x + boss.width/2, boss.y + boss.height/2, boss.width/2, 0, Math.PI * 2);
         ctx.fill();
-        // Полоса здоровья
         ctx.fillStyle = '#e74c3c';
         ctx.fillRect(boss.x, boss.y - 10, boss.width, 5);
         ctx.fillStyle = '#2ecc71';
         ctx.fillRect(boss.x, boss.y - 10, boss.width * (boss.health / boss.maxHealth), 5);
       }
 
-      // Станция
       if (station) {
         ctx.fillStyle = '#f1c40f';
         ctx.beginPath();
@@ -730,7 +875,6 @@
         ctx.setLineDash([]);
       }
 
-      // Частицы
       particles.forEach(p => {
         ctx.fillStyle = p.color;
         ctx.globalAlpha = p.life / 30;
@@ -741,21 +885,17 @@
 
     function startNewWave() {
       wave++;
-      // Создаём босса каждую 2-ю волну
       if (wave % 2 === 0) {
         boss = createBoss();
       }
-      // Уведомление
       showNotification(`Волна ${wave}! ${boss ? 'Босс атакует!' : 'Готовьтесь!'}`);
     }
 
     function destroyBoss() {
       if (!boss) return;
-      // Частицы взрыва
       for (let i = 0; i < 30; i++) {
         particles.push(createParticle(boss.x + boss.width/2, boss.y + boss.height/2, '#8e44ad', (Math.random()-0.5)*6, (Math.random()-0.5)*6));
       }
-      // Бонус
       score += 200;
       energy += 20;
       scoreEl.textContent = score;
@@ -765,7 +905,8 @@
       bossPool.push(boss);
       boss = null;
     }
-          // ================== Улучшения ==================
+
+    // ================== Улучшения ==================
     function applyUpgrade(type) {
       if (upgrades.activeCount >= 2) {
         alert('Можно активировать только 2 улучшения!');
@@ -799,7 +940,7 @@
       modal.id = 'upgradesModal';
       modal.innerHTML = `
         <div style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); display:flex; justify-content:center; align-items:center; z-index:40;">
-          <div style="background:#222; padding:20px; border-radius:10px; text-align:center; max-width:300px;">
+          <div style="background:#222; color:white; padding:20px; border-radius:10px; text-align:center; max-width:300px;">
             <h3>Улучшения (макс. 2)</h3>
             <div>Энергия: <span id="modalEnergy">${energy}</span></div>
             <button onclick="applyUpgrade('speed'); updateModal();" style="display:block; width:100%; margin:10px 0;">+Скорость (${upgrades.speed > 1 ? 'Улучшено' : '20 энергии'})</button>
@@ -817,7 +958,6 @@
       document.getElementById('modalEnergy').textContent = energy;
     }
 
-    // Горячие клавиши для улучшений
     window.addEventListener('keydown', (e) => {
       if (gameActive && !paused) {
         if (e.key === '1') applyUpgrade('speed');
@@ -836,7 +976,6 @@
           return data;
         }
       }
-      // Новое задание
       const challenges = [
         { type: 'debris', target: 20, desc: 'Соберите 20 мусорин' },
         { type: 'asteroid', target: 10, desc: 'Избегите 10 астероидов' },
@@ -872,15 +1011,12 @@
       finalLevelEl.textContent = level;
       gameOverEl.style.display = 'flex';
 
-      // Достижения
       if (noHit && totalPlayTime > 10) unlockAchievement('noHit', 'Выжил без столкновений');
       if (currentMode === 'hardcore' && totalPlayTime > 120) unlockAchievement('hardcore', 'Выжил в Hardcore режиме');
 
-      // Сохраняем рекорд
       if (currentUser && score > 0) {
         const username = currentUser.user_metadata?.username || 'Игрок';
         try {
-          // Получаем лучший рекорд
           const { data } = await supabase
             .from('scores')
             .select('score')
@@ -905,7 +1041,6 @@
         }
       }
 
-      // Кнопка вызова
       challengeBtn.style.display = 'block';
       challengeBtn.onclick = () => {
         const challengeUrl = `${window.location.origin}${window.location.pathname}?challenge=${currentMode}&score=${score}`;
@@ -929,15 +1064,7 @@
       }, 1000);
     }
 
-    // ================== Адаптация под размер экрана ==================
-    window.addEventListener('resize', () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-      if (!gameActive) {
-        player.x = canvas.width / 2 - 15;
-      }
-    });
-          // ================== Таблица рекордов ==================
+    // ================== Таблица рекордов ==================
     async function showLeaderboard() {
       menuEl.style.display = 'none';
       leaderboardEl.style.display = 'flex';
@@ -1000,21 +1127,18 @@
       });
     }
 
-    // Оффлайн-режим: сохраняем локальные рекорды
-    function saveLocalScore() {
-      if (!currentUser) {
-        const local = JSON.parse(localStorage.getItem('localScores') || '[]');
-        local.push({ score, level, mode: currentMode, date: new Date().toISOString() });
-        localStorage.setItem('localScores', JSON.stringify(local));
+    // ================== Адаптация под размер экрана ==================
+    window.addEventListener('resize', () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      if (!gameActive) {
+        player.x = canvas.width / 2 - 15;
       }
-    }
+    });
 
     // ================== Инициализация ==================
-    // Загружаем ежедневное задание
     getTodaysChallenge();
 
-    // Проверяем вызов при загрузке
-    const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.has('challenge')) {
       const mode = urlParams.get('challenge');
       const score = urlParams.get('score');
@@ -1023,9 +1147,7 @@
       }, 1000);
     }
 
-    // ================== Финал ==================
     console.log('Игра загружена! Автор: tricksterlub');
   </script>
 </body>
 </html>
-
